@@ -34,11 +34,11 @@ import java.util.Set;
 public class Connection implements Runnable {
     private static final String TAG = Connection.class.getName();
 
-    public final static int STATE_CONNECTING = 0;
-    public final static int STATE_CONNECTED = 1;
-    public final static int STATE_CLOSING = 2;
-    public final static int STATE_CLOSED = 3;
-    public final static int STATE_FAILED = 3;
+    public final static int STATE_CLOSED = 0;
+    public final static int STATE_CONNECTING = 1;
+    public final static int STATE_CONNECTED = 2;
+    public final static int STATE_CLOSING = 3;
+    public final static int STATE_FAILED = 4;
 
     protected SocketChannel mSocketChannel;
     protected Selector mSelector;
@@ -285,7 +285,7 @@ public class Connection implements Runnable {
 
         if (mMessageListeners != null) {
             for (IMessageListener listener : mMessageListeners) {
-                listener.onMessage((ResponseMessage) message);
+                listener.onMessage(message);
             }
         } else {
             Log.w(TAG, "Message received, but no listeners.. Discarding.");

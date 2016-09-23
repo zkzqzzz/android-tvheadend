@@ -21,6 +21,7 @@ import android.media.tv.TvContract;
 import android.support.annotation.NonNull;
 import android.text.TextUtils;
 
+import ie.macinnes.htsp.messages.ChannelAddResponse;
 import ie.macinnes.tvheadend.TvContractUtils;
 import ie.macinnes.tvheadend.client.TVHClient;
 
@@ -204,6 +205,33 @@ public class Channel implements Comparable<Channel> {
         InternalProviderData providerData = new InternalProviderData();
 
         providerData.setUuid(clientChannel.uuid);
+        providerData.setAccountName(account.name);
+
+        channel.setInternalProviderData(providerData);
+
+        return channel;
+    }
+
+    public static Channel fromHtspChannel(ChannelAddResponse htspChannel, Account account) {
+        Channel channel = new Channel();
+
+        // Set the provided inputId
+        channel.setInputId(TvContractUtils.getInputId());
+
+        // Copy values from the clientChannel
+        channel.setDisplayNumber(htspChannel.getChannelNumber().toString());
+        channel.setDisplayName(htspChannel.getChannelName());
+        channel.setIconUri(htspChannel.getChannelIcon());
+        channel.setOriginalNetworkId(htspChannel.getChannelId().intValue());
+
+        // Set hardcoded values
+        channel.setType(TvContract.Channels.TYPE_OTHER);
+
+        // Prep and set a InternalProviderData object
+        InternalProviderData providerData = new InternalProviderData();
+
+        // TODO: Remove Me
+        providerData.setUuid("0");
         providerData.setAccountName(account.name);
 
         channel.setInternalProviderData(providerData);

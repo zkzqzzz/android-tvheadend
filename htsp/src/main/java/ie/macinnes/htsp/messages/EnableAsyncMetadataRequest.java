@@ -18,6 +18,7 @@ package ie.macinnes.htsp.messages;
 
 import ie.macinnes.htsp.HtspMessage;
 import ie.macinnes.htsp.RequestMessage;
+import ie.macinnes.htsp.ResponseMessage;
 
 public class EnableAsyncMetadataRequest extends RequestMessage {
     public static final String METHOD = "enableAsyncMetadata";
@@ -90,5 +91,10 @@ public class EnableAsyncMetadataRequest extends RequestMessage {
         htspMessage.putString("language", getLanguage());
 
         return htspMessage;
+    }
+
+    @Override
+    protected Class<? extends ResponseMessage> getResponseClass() {
+        return EnableAsyncMetadataResponse.class;
     }
 }

@@ -26,43 +26,67 @@ import android.media.tv.TvContract;
 import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Bundle;
-import android.text.TextUtils;
+import android.os.Handler;
 import android.util.Log;
 import android.util.SparseArray;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import ie.macinnes.htsp.Connection;
+import ie.macinnes.htsp.ConnectionListener;
+import ie.macinnes.htsp.MessageHandler;
+import ie.macinnes.htsp.MessageListener;
+import ie.macinnes.htsp.ResponseMessage;
+import ie.macinnes.htsp.messages.ChannelAddResponse;
+import ie.macinnes.htsp.messages.EnableAsyncMetadataRequest;
+import ie.macinnes.htsp.messages.EnableAsyncMetadataResponse;
+import ie.macinnes.htsp.messages.EventAddResponse;
+import ie.macinnes.htsp.messages.HelloRequest;
+import ie.macinnes.htsp.messages.HelloResponse;
+import ie.macinnes.htsp.messages.InitialSyncCompletedResponse;
 import ie.macinnes.tvheadend.Constants;
 import ie.macinnes.tvheadend.TvContractUtils;
-import ie.macinnes.tvheadend.client.TVHClient;
 import ie.macinnes.tvheadend.model.Channel;
 import ie.macinnes.tvheadend.model.ChannelList;
-import ie.macinnes.tvheadend.tasks.SyncLogosTask;
-import ie.macinnes.tvheadend.tasks.SyncProgramsTask;
+import ie.macinnes.tvheadend.model.Program;
+import ie.macinnes.tvheadend.model.ProgramList;
 
 
 public class SyncAdapter extends AbstractThreadedSyncAdapter {
     private static final String TAG = SyncAdapter.class.getName();
 
+    public final static int STATE_IDLE = 0;
+    public final static int STATE_SYNCING = 2;
+    public final static int STATE_CANCELLING = 3;
+    public final static int STATE_CANCELLED = 4;
+    public final static int STATE_COMPLETE = 5;
+
     private final Context mContext;
     private final ContentResolver mContentResolver;
 
-    private final TVHClient mClient;
+    private Connection mHtspConnection;
+    private Thread mHtspConnectionThread;
 
-    private boolean mIsCancelled = false;
+    private final Object mSyncLock = new Object();
+
+    private int mState = STATE_IDLE;
+
+    private Handler mHandler = new Handler();
+    private MessageListener mMessageListener;
+    private ConnectionListener mConnectionListener;
+
+    private Account mAccount;
+    private ChannelList mChannelList;
+    private ProgramList mProgramList;
+
     private ArrayList<AsyncTask> mPendingTasks = new ArrayList<AsyncTask>();
 
     private static final int CPU_COUNT = Runtime.getRuntime().availableProcessors();
@@ -91,7 +115,7 @@ public class SyncAdapter extends AbstractThreadedSyncAdapter {
         mContext = context;
         mContentResolver = context.getContentResolver();
 
-        mClient = TVHClient.getInstance(context);
+        initListeners();
     }
 
     public SyncAdapter(Context context, boolean autoInitialize, boolean allowParallelSyncs) {
@@ -100,13 +124,158 @@ public class SyncAdapter extends AbstractThreadedSyncAdapter {
         mContext = context;
         mContentResolver = context.getContentResolver();
 
-        mClient = TVHClient.getInstance(context);
+        initListeners();
+    }
+
+    protected void initListeners() {
+        mConnectionListener = new ConnectionListener(mHandler) {
+            @Override
+            public void onStateChange(int state, int previous) {
+                Log.d(TAG, "Connected State Changed from " + previous + " to " + state);
+
+
+                if (state == Connection.STATE_CONNECTED) {
+                    HelloRequest helloRequest = new HelloRequest();
+
+                    helloRequest.setUsername("kiall");
+                    helloRequest.setHtspVersion(23);
+                    helloRequest.setClientName("Test");
+                    helloRequest.setClientVersion("1.0.0");
+
+                    mHtspConnection.sendMessage(helloRequest);
+                }
+            }
+        };
+
+        mMessageListener = new MessageListener(mHandler);
+
+        mMessageListener.addMessageTypeHandler(HelloResponse.class, new HelloHandler());
+        mMessageListener.addMessageTypeHandler(EnableAsyncMetadataResponse.class, new EnableAsyncMetadataHandler());
+        mMessageListener.addMessageTypeHandler(InitialSyncCompletedResponse.class, new InitialSyncCompletedHandler());
+        mMessageListener.addMessageTypeHandler(ChannelAddResponse.class, new ChannelAddMessageHandler());
+        mMessageListener.addMessageTypeHandler(EventAddResponse.class, new EventAddMessageHandler());
+    }
+
+    protected class HelloHandler extends MessageHandler {
+        @Override
+        public void onMessage(ResponseMessage message) {
+            // TODO: Add Auth Step
+            EnableAsyncMetadataRequest enableAsyncMetadataRequest = new EnableAsyncMetadataRequest();
+
+            enableAsyncMetadataRequest.setEpg(1L);
+            enableAsyncMetadataRequest.setEpgMaxTime((System.currentTimeMillis() / 1000L) + 60);
+
+            mHtspConnection.sendMessage(enableAsyncMetadataRequest);
+        }
+    }
+
+    protected class EnableAsyncMetadataHandler extends MessageHandler {
+        @Override
+        public void onMessage(ResponseMessage message) {
+            Log.w(TAG, "Async Metadata Enabled");
+        }
+    }
+
+    protected class InitialSyncCompletedHandler extends MessageHandler {
+        @Override
+        public void onMessage(ResponseMessage message) {
+            Log.w(TAG, "Initial Sync Complete");
+
+            syncChannels();
+
+            synchronized (mSyncLock) {
+                mSyncLock.notifyAll();
+            }
+        }
+    }
+
+    protected class ChannelAddMessageHandler extends MessageHandler {
+        @Override
+        public void onMessage(ResponseMessage message) {
+            ChannelAddResponse channelAddResponse = (ChannelAddResponse) message;
+            Log.w(TAG, "Channel Add: " + channelAddResponse.toString());
+            mChannelList.add(Channel.fromHtspChannel(channelAddResponse, mAccount));
+        }
+    }
+
+    protected class EventAddMessageHandler extends MessageHandler {
+        @Override
+        public void onMessage(ResponseMessage message) {
+            EventAddResponse eventAddResponse = (EventAddResponse) message;
+            Log.w(TAG, "Event Add: " + eventAddResponse.toString());
+            mProgramList.add(Program.fromHtspEvent(eventAddResponse, 1, mAccount));
+        }
+    }
+
+    protected void connect() {
+        Log.d(TAG, "Creating HTSP Connection");
+
+        mHtspConnection = new Connection();
+        mHtspConnection.addMessageListener(mMessageListener);
+        mHtspConnection.addConnectionListener(mConnectionListener);
+
+        mHtspConnectionThread = new Thread(mHtspConnection);
+        mHtspConnectionThread.start();
+    }
+
+    protected void disconnect() {
+        Log.d(TAG, "Closing HTSP Connection");
+        mHtspConnection.close();
+    }
+
+    @Override
+    public void onPerformSync(Account account, Bundle extras, String authority, ContentProviderClient provider, SyncResult syncResult) {
+        if (mState != STATE_IDLE) {
+            Log.w(TAG, "Rejecting sync request, not idle");
+            return;
+        }
+
+        connect();
+
+        mAccount = account;
+        mChannelList = new ChannelList();
+        mProgramList = new ProgramList();
+
+        Log.d(TAG, "Starting sync for account: " + account.toString());
+        mState = STATE_SYNCING;
+
+        final boolean quickSync = extras.getBoolean(Constants.SYNC_EXTRAS_QUICK, false);
+
+        synchronized (mSyncLock) {
+            try {
+                mSyncLock.wait();
+            } catch (InterruptedException e) {
+                Log.e(TAG, "Sync lock InterruptedException!", e);
+                return;
+            }
+        }
+
+        if (isCancelled()) {
+            Log.i(TAG, "Sync cancelled");
+            return;
+        }
+
+        // Wait for all tasks to finish
+        Log.d(TAG, "Completed sync for account: " + account.toString());
+        mState = STATE_COMPLETE;
+
+        disconnect();
+
+        mState = STATE_IDLE;
+    }
+
+    public boolean isCancelled() {
+        return mState == STATE_CANCELLING || mState == STATE_CANCELLED;
     }
 
     @Override
     public void onSyncCanceled() {
         Log.d(TAG, "Sync cancellation requested");
-        mIsCancelled = true;
+        mState = STATE_CANCELLING;
+
+        synchronized (mSyncLock) {
+            mSyncLock.notifyAll();
+        }
 
         Log.d(TAG, "Cancelling " + mPendingTasks.size() + " pending tasks");
 
@@ -115,79 +284,24 @@ public class SyncAdapter extends AbstractThreadedSyncAdapter {
             asyncTask.cancel(true);
             mPendingTasks.remove(asyncTask);
         }
+
+        mState = STATE_CANCELLED;
+        disconnect();
     }
 
-    public boolean isCancelled() {
-        return mIsCancelled;
-    }
-
-    @Override
-    public void onPerformSync(Account account, Bundle extras, String authority, ContentProviderClient provider, SyncResult syncResult) {
-        Log.d(TAG, "Starting sync for account: " + account.toString());
-
-        mIsCancelled = false;
-
-        // TODO: The TVHClient class needs to support multiple accounts, this is racy as other
-        // processes may be using this singleton with different creds.
-        mClient.setConnectionInfo(account);
-
-        if (isCancelled()) {
-            Log.d(TAG, "Sync cancelled");
-            return;
-        }
-
-        // Sync Channels
-        if (!syncChannels(account)) {
-            return;
-        }
-
-        if (isCancelled()) {
-            Log.d(TAG, "Sync cancelled");
-            return;
-        }
-
-        // Sync Programs
-        final boolean quickSync = extras.getBoolean(Constants.SYNC_EXTRAS_QUICK, false);
-        if (!syncPrograms(account, quickSync)) {
-            return;
-        }
-
-        // Wait for all tasks to finish
-        Log.d(TAG, "Completed sync for account: " + account.toString());
-    }
-
-    private boolean syncChannels(final Account account) {
-        Log.d(TAG, "Starting channel sync");
-
-        ChannelList channelList;
-
-        try {
-            channelList = ChannelList.fromClientChannelList(mClient.getChannelGrid(), account);
-        } catch (InterruptedException|ExecutionException e) {
-            // Something went wrong
-            Log.w(TAG, "Failed to fetch channel list from server: " + e.getLocalizedMessage(), e);
-            return false;
-        } catch (TimeoutException e) {
-            // Request timed out
-            Log.w(TAG, "Failed to fetch channel list from server, timed out");
-            return false;
-        }
-
+    protected boolean syncChannels() {
         // Sort the list of Channels
-        Collections.sort(channelList);
+        Collections.sort(mChannelList);
 
         // Build a channel map, mapping from Original Network ID -> RowID's
-        SparseArray<Long> channelMap = TvContractUtils.buildChannelMap(mContext, channelList);
-
-        // Prep a mapping for Logo content URI and URLs
-        Map<Uri, String> logos = new HashMap<>();
+        SparseArray<Long> channelMap = TvContractUtils.buildChannelMap(mContext, mChannelList);
 
         // Update the Channels DB - If a channel exists, update it. If not, insert a new one.
         ContentValues values;
         Long rowId;
         Uri channelUri;
 
-        for (Channel channel : channelList) {
+        for (Channel channel : mChannelList) {
             if (isCancelled()) {
                 Log.d(TAG, "Sync cancelled");
                 return false;
@@ -206,11 +320,6 @@ public class SyncAdapter extends AbstractThreadedSyncAdapter {
                 mContentResolver.update(channelUri, values, null, null);
                 channelMap.remove(channel.getOriginalNetworkId());
             }
-
-            // If we have a channel icon, add it to the logs map
-            if (channel.getIconUri() != null && !TextUtils.isEmpty(channel.getIconUri())) {
-                logos.put(TvContract.buildChannelLogoUri(channelUri), channel.getIconUri());
-            }
         }
 
         // Update the Channels DB - Delete channels which no longer exist.
@@ -226,108 +335,7 @@ public class SyncAdapter extends AbstractThreadedSyncAdapter {
             mContentResolver.delete(TvContract.buildChannelUri(rowId), null, null);
         }
 
-        if (!logos.isEmpty()) {
-            SyncLogosTask syncLogosTask = new SyncLogosTask(mContext) {
-                @Override
-                protected void onPostExecute(Void voids) {
-                    mPendingTasks.remove(this);
-                }
-
-                @Override
-                protected void onCancelled() {
-                    mPendingTasks.remove(this);
-                }
-            };
-
-            if (isCancelled()) {
-                Log.d(TAG, "Sync cancelled");
-                return false;
-            }
-
-            Log.d(TAG, "Dispatching Logos Sync Task");
-            mPendingTasks.add(syncLogosTask.executeOnExecutor(sExecutor, logos));
-        }
-
         Log.d(TAG, "Completed channel sync");
-
-        return true;
-    }
-
-    private boolean syncPrograms(final Account account, final boolean quickSync) {
-        Log.d(TAG, "Starting program sync");
-
-        // Gather the list of channels from TvProvider
-        // Select only a few columns
-        String[] projection = {
-                TvContract.Channels._ID,
-                TvContract.Channels.COLUMN_DISPLAY_NAME,
-                TvContract.Channels.COLUMN_DISPLAY_NUMBER,
-                TvContract.Channels.COLUMN_INTERNAL_PROVIDER_DATA
-        };
-
-        // Fetch the ChannelList
-        ChannelList channelList = TvContractUtils.getChannels(mContext, projection);
-
-        // Update the EPG for each channel
-        final CountDownLatch countDownLatch = new CountDownLatch(channelList.size());
-
-        for (Channel channel : channelList) {
-            updateChannelPrograms(account, countDownLatch, channel, quickSync);
-        }
-
-        // Wait for all tasks to finish
-        try {
-            countDownLatch.await();
-        } catch (InterruptedException e) {
-            Log.w(TAG, "Interrupted while awaiting program sync to complete: " + e.getLocalizedMessage());
-            return false;
-        }
-
-        Log.d(TAG, "Completed program sync");
-        return true;
-    }
-
-    private boolean updateChannelPrograms(final Account account, final CountDownLatch countDownLatch, final Channel channel, final boolean quickSync) {
-        Log.d(TAG, "Fetching events for channel " + channel.toString());
-
-        TVHClient.EventList eventList;
-
-        String channelUuid = channel.getInternalProviderData().getUuid();
-
-        try {
-            if (quickSync) {
-                // Used by the Setup Wizard, we do a quick sync in the forground, then a full sync
-                // in the background.
-                eventList = mClient.getEventGrid(channelUuid, TVHClient.QUICK_EVENT_LIMIT);
-            } else {
-                eventList = mClient.getEventGrid(channelUuid);
-            }
-        } catch (InterruptedException|ExecutionException e) {
-            // Something went wrong
-            Log.w(TAG, "Failed to fetch event list from server: " + e.getLocalizedMessage(), e);
-            return false;
-        } catch (TimeoutException e) {
-            // Request timed out
-            Log.w(TAG, "Failed to fetch event  list from server, timed out");
-            return false;
-        }
-
-        // Prepare the SyncProgramsTask
-        final SyncProgramsTask syncProgramsTask = new SyncProgramsTask(mContext, channel, account) {
-            @Override
-            protected void onPostExecute(Boolean completed) {
-                mPendingTasks.remove(this);
-                countDownLatch.countDown();
-            }
-
-            @Override
-            protected void onCancelled() {
-                mPendingTasks.remove(this);
-                countDownLatch.countDown();
-            }
-        };
-
-        mPendingTasks.add(syncProgramsTask.executeOnExecutor(sExecutor, eventList));
 
         return true;
     }

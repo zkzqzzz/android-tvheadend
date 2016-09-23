@@ -1,17 +1,18 @@
-/* Copyright 2016 Kiall Mac Innes <kiall@macinnes.ie>
-
-Licensed under the Apache License, Version 2.0 (the "License"); you may
-not use this file except in compliance with the License. You may obtain
-a copy of the License at
-
-http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
-WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
-License for the specific language governing permissions and limitations
-under the License.
-*/
+/*
+ * Copyright (c) 2016 Kiall Mac Innes <kiall@macinnes.ie>
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may
+ * not use this file except in compliance with the License. You may obtain
+ * a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+ * License for the specific language governing permissions and limitations
+ * under the License.
+ */
 package ie.macinnes.tvheadend.setup;
 
 import android.accounts.Account;
@@ -36,7 +37,6 @@ import android.util.Log;
 import java.util.ArrayList;
 import java.util.List;
 
-import ie.macinnes.htsp.HtspService;
 import ie.macinnes.tvheadend.Constants;
 import ie.macinnes.tvheadend.R;
 import ie.macinnes.tvheadend.TvContractUtils;
@@ -44,8 +44,8 @@ import ie.macinnes.tvheadend.client.TVHClient;
 import ie.macinnes.tvheadend.migrate.MigrateUtils;
 import ie.macinnes.tvheadend.sync.SyncUtils;
 
-public class TvInputSetupActivity extends Activity {
-    private static final String TAG = TvInputSetupActivity.class.getName();
+public class TvInputSetupActivityOrig extends Activity {
+    private static final String TAG = TvInputSetupActivityOrig.class.getName();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -63,6 +63,7 @@ public class TvInputSetupActivity extends Activity {
         protected AccountManager mAccountManager;
 
         protected static Account sAccount;
+        protected static TVHClient sClient;
 
         @Override
         public int onProvideTheme() {
@@ -82,6 +83,7 @@ public class TvInputSetupActivity extends Activity {
             }
 
             mAccountManager = AccountManager.get(getActivity());
+            sClient = TVHClient.getInstance(getActivity());
         }
 
         protected Account getAccountByName(String name) {
@@ -133,9 +135,61 @@ public class TvInputSetupActivity extends Activity {
         @Override
         public void onGuidedActionClicked(GuidedAction action) {
             // Move onto the next step
-            GuidedStepFragment fragment = new AccountSelectorFragment();
+            GuidedStepFragment fragment = new IssuesFragment();
             fragment.setArguments(getArguments());
             add(getFragmentManager(), fragment);
+        }
+    }
+
+    public static class IssuesFragment extends BaseGuidedStepFragment {
+        private static final int ACTION_ID_SHOW_ISSUES = 1;
+        private static final int ACTION_ID_LETS_GO = 2;
+
+        @NonNull
+        @Override
+        public GuidanceStylist.Guidance onCreateGuidance(Bundle savedInstanceState) {
+            GuidanceStylist.Guidance guidance = new GuidanceStylist.Guidance(
+                    "Known Issues",
+                    "There are several known issues at the moment, without reading this info, it " +
+                    "is extremely unlikely you will get working video!",
+                    "TVHeadend",
+                    null);
+
+            return guidance;
+        }
+
+        @Override
+        public void onCreateActions(@NonNull List<GuidedAction> actions, Bundle savedInstanceState) {
+            GuidedAction action = new GuidedAction.Builder(getActivity())
+                    .id(ACTION_ID_SHOW_ISSUES)
+                    .title("Show Issues")
+                    .description("Show the known issues page")
+                    .editable(false)
+                    .build();
+
+            actions.add(action);
+
+            action = new GuidedAction.Builder(getActivity())
+                    .id(ACTION_ID_LETS_GO)
+                    .title("Begin")
+                    .description("Start Tvheadend Live Channel Setup")
+                    .editable(false)
+                    .build();
+
+            actions.add(action);
+        }
+
+        @Override
+        public void onGuidedActionClicked(GuidedAction action) {
+            if (action.getId() == ACTION_ID_SHOW_ISSUES) {
+                Intent intent = new Intent(getActivity(), IssuesActivity.class);
+                startActivity(intent);
+            } else if (action.getId() == ACTION_ID_LETS_GO) {
+                // Move onto the next step
+                GuidedStepFragment fragment = new AccountSelectorFragment();
+                fragment.setArguments(getArguments());
+                add(getFragmentManager(), fragment);
+            }
         }
     }
 
@@ -250,19 +304,94 @@ public class TvInputSetupActivity extends Activity {
         public void onGuidedActionClicked(GuidedAction action) {
             if (ACTION_ID_CONFIRM == action.getId()) {
                 // Setup the client with the selected account
-//                sClient.setConnectionInfo(sAccount);
+                sClient.setConnectionInfo(sAccount);
 
                 // Move onto the next step
-                GuidedStepFragment fragment = new SyncingFragment();
+                GuidedStepFragment fragment = new SessionSelectorFragment();
                 fragment.setArguments(getArguments());
                 add(getFragmentManager(), fragment);
             }
         }
     }
 
+    public static class SessionSelectorFragment extends BaseGuidedStepFragment {
+        private static final int ACTION_ID_MEDIA_PLAYER = 1;
+        private static final int ACTION_ID_EXO_PLAYER = 2;
+        private static final int ACTION_ID_VLC = 3;
+
+        @NonNull
+        @Override
+        public GuidanceStylist.Guidance onCreateGuidance(Bundle savedInstanceState) {
+            GuidanceStylist.Guidance guidance = new GuidanceStylist.Guidance(
+                    "Session Selector",
+                    "There are several Session implementatioms, please choose one",
+                    "TVHeadend",
+                    null);
+
+            return guidance;
+        }
+
+        @Override
+        public void onCreateActions(@NonNull List<GuidedAction> actions, Bundle savedInstanceState) {
+            GuidedAction action = new GuidedAction.Builder(getActivity())
+                    .id(ACTION_ID_VLC)
+                    .title("LibVLC")
+                    .description("VideoLAN LibVLC (Recommended)")
+                    .editable(false)
+                    .build();
+
+            actions.add(action);
+
+            action = new GuidedAction.Builder(getActivity())
+                    .id(ACTION_ID_MEDIA_PLAYER)
+                    .title("Media Player")
+                    .description("Android Media Player")
+                    .editable(false)
+                    .build();
+
+            actions.add(action);
+
+            action = new GuidedAction.Builder(getActivity())
+                    .id(ACTION_ID_EXO_PLAYER)
+                    .title("ExoPlayer")
+                    .description("Google ExoPlayer (Experimental)")
+                    .editable(false)
+                    .build();
+
+            actions.add(action);
+        }
+
+        @Override
+        public void onGuidedActionClicked(GuidedAction action) {
+            String session;
+
+            if (action.getId() == ACTION_ID_MEDIA_PLAYER) {
+                session = Constants.SESSION_MEDIA_PLAYER;
+            } else if (action.getId() == ACTION_ID_EXO_PLAYER) {
+                session = Constants.SESSION_EXO_PLAYER;
+            } else if (action.getId() == ACTION_ID_VLC) {
+                session = Constants.SESSION_VLC;
+            } else {
+                return;
+            }
+
+            // Store the chosen session type
+            SharedPreferences sharedPreferences = getActivity().getSharedPreferences(
+                    Constants.PREFERENCE_TVHEADEND, Context.MODE_PRIVATE);
+
+            SharedPreferences.Editor editor = sharedPreferences.edit();
+            editor.putString(Constants.KEY_SESSION, session);
+            editor.commit();
+
+            // Move onto the next step
+            GuidedStepFragment fragment = new SyncingFragment();
+            fragment.setArguments(getArguments());
+            add(getFragmentManager(), fragment);
+        }
+    }
+
     public static class SyncingFragment extends BaseGuidedStepFragment {
         private Object mSyncStatusChangedReceiverHandle;
-
         private final SyncStatusObserver mSyncStatusObserver = new SyncStatusObserver() {
 
             @Override

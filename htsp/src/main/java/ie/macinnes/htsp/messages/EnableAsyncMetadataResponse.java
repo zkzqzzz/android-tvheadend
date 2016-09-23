@@ -14,8 +14,9 @@
  * under the License.
  */
 
-package ie.macinnes.htsp;
+package ie.macinnes.htsp.messages;
 
-abstract public class MessageHandler {
-    abstract public void onMessage(ResponseMessage message);
+import ie.macinnes.htsp.HtspMessage;
+
+public class EnableAsyncMetadataResponse extends BaseEventResponse {
 }

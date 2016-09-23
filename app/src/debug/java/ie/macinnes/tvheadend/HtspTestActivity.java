@@ -54,14 +54,6 @@ public class HtspTestActivity extends Activity {
     }
 
     @Override
-    protected void onStart() {
-        super.onStart();
-        // Bind to LocalService
-        Intent intent = new Intent(this, HtspService.class);
-        bindService(intent, mConnection, Context.BIND_AUTO_CREATE);
-    }
-
-    @Override
     protected void onStop() {
         super.onStop();
         // Unbind from the service
@@ -121,10 +113,6 @@ public class HtspTestActivity extends Activity {
         }
     };
 
-    public void connect(View view) {
-
-    }
-
     public void hello(View view) {
         if (mHtspServiceBound) {
 
@@ -136,12 +124,12 @@ public class HtspTestActivity extends Activity {
             helloRequest.setClientName("Test");
             helloRequest.setClientVersion("1.0.0");
 
-            mMessageListener.addMessageResponseHandler(helloRequest.getSeq(), new MessageHandler() {
-                @Override
-                public void run() {
-                    setDebugOutput(mMessage.toString());
-                }
-            });
+//            mMessageListener.addMessageResponseHandler(helloRequest.getSeq(), new MessageHandler() {
+//                @Override
+//                public void run() {
+//                    setDebugOutput(mMessage.toString());
+//                }
+//            });
 
             Log.d(TAG, "Sending helloRequest");
             mHtspService.sendMessage(helloRequest);
@@ -150,12 +138,12 @@ public class HtspTestActivity extends Activity {
 
     public void enableAsyncMetadata(View view) {
         if (mHtspServiceBound) {
-            mMessageListener.addMessageTypeHandler(ChannelAddResponse.class, new MessageHandler() {
-                @Override
-                public void run() {
-                    appendDebugOutput(mMessage.toString());
-                }
-            });
+//            mMessageListener.addMessageTypeHandler(ChannelAddResponse.class, new MessageHandler() {
+//                @Override
+//                public void run() {
+//                    appendDebugOutput(mMessage.toString());
+//                }
+//            });
 
             EnableAsyncMetadataRequest enableAsyncMetadataRequest = new EnableAsyncMetadataRequest();
 
@@ -191,5 +179,16 @@ public class HtspTestActivity extends Activity {
 
             mHtspService.sendMessage(unsubscribeRequest);
         }
+    }
+
+    public void startService(View view) {
+        // Bind to LocalService
+        Intent intent = new Intent(this, HtspService.class);
+        bindService(intent, mConnection, Context.BIND_AUTO_CREATE);
+    }
+
+    public void stopService(View view) {
+        unbindService(mConnection);
+        stopService(new Intent(this, HtspService.class));
     }
 }

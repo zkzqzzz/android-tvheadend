@@ -25,6 +25,8 @@ import android.text.TextUtils;
 
 import java.util.Objects;
 
+import ie.macinnes.htsp.messages.ChannelAddResponse;
+import ie.macinnes.htsp.messages.EventAddResponse;
 import ie.macinnes.tvheadend.client.TVHClient;
 
 public class Program implements Comparable<Program> {
@@ -240,6 +242,44 @@ public class Program implements Comparable<Program> {
         InternalProviderData providerData = new InternalProviderData();
 
         providerData.setEventId(clientEvent.eventId);
+        providerData.setAccountName(account.name);
+
+        program.setInternalProviderData(providerData);
+
+        return program;
+    }
+
+    public static Program fromHtspEvent(EventAddResponse htspEvent, long channelId, Account account) {
+        Program program = new Program();
+
+        // Set the provided channelId
+        program.setChannelId(channelId);
+
+        // Copy values from the htspEvent
+        program.setTitle(htspEvent.getTitle());
+        program.setEpisodeTitle(htspEvent.getSubTitle());
+
+        // Use summary as short description, otherwise use description
+        if (htspEvent.getSummary() != null) {
+            program.setShortDescription(htspEvent.getSummary());
+        } else if (htspEvent.getDescription() != null) {
+            program.setShortDescription(htspEvent.getDescription());
+        }
+
+        // Use description as long description, otherwise use summary
+        if (htspEvent.getDescription() != null) {
+            program.setLongDescription(htspEvent.getDescription());
+        } else if (htspEvent.getSummary() != null) {
+            program.setLongDescription(htspEvent.getSummary());
+        }
+
+        program.setStartTimeUtcMillis(htspEvent.getStart() * 1000);
+        program.setEndTimeUtcMillis(htspEvent.getStop() * 1000);
+
+        // Prep and set a InternalProviderData object
+        InternalProviderData providerData = new InternalProviderData();
+
+        providerData.setEventId(htspEvent.getEventId().toString());
         providerData.setAccountName(account.name);
 
         program.setInternalProviderData(providerData);

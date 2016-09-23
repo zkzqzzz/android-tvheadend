@@ -252,6 +252,7 @@ public class HtspMessage extends HashMap<String, Object> {
             if (fieldType == FIELD_STR) {
                 Log.v(TAG, "Deserializaing a STR with key " + key);
                 value = new String(valueBytes);
+                if (key.equals("channelName")) Log.w(TAG, "Channel Name: " + value);
 
             } else if (fieldType == FIELD_S64) {
                 Log.v(TAG, "Deserializaing a S64 with key " + key + " and valueBytes length " + valueBytes.length);

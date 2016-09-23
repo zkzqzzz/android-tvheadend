@@ -35,11 +35,11 @@ public class MessageListener implements IMessageListener {
     }
 
     @Override
-    public void onMessage(ResponseMessage message) {
+    public void onMessage(final ResponseMessage message) {
         Log.v(TAG, "Received Message: " + message.toString());
 
         Long seq = message.getSeq();
-        MessageHandler handler;
+        final MessageHandler handler;
 
         if (mMessageResponseCallbacks.containsKey(seq)) {
             handler = mMessageResponseCallbacks.remove(seq);
@@ -50,14 +50,17 @@ public class MessageListener implements IMessageListener {
             return;
         }
 
-        handler.setMessage(message);
-
         if (mHandler != null) {
             // User has supplied a Handler to execute callbacks on
-            mHandler.post(handler);
+            mHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    handler.onMessage(message);
+                }
+            });
         } else {
             // Execute in our own thread
-            handler.run();
+            handler.onMessage(message);
         }
     }
 
@@ -65,7 +68,7 @@ public class MessageListener implements IMessageListener {
         mMessageResponseCallbacks.put(seq, runnable);
     }
 
-    public void addMessageTypeHandler(Class<? extends ResponseMessage> clazz, MessageHandler runnable) {
-        mMessageTypeCallbacks.put(clazz, runnable);
+    public void addMessageTypeHandler(Class<? extends ResponseMessage> responseClass, MessageHandler handler) {
+        mMessageTypeCallbacks.put(responseClass, handler);
     }
 }
