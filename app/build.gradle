@@ -32,8 +32,9 @@ repositories {
 
 dependencies {
     compile fileTree(include: ['*.jar'], dir: 'libs')
-    compile 'com.android.support:support-v4:24.1.1'
-    compile 'com.android.support:leanback-v17:24.1.1'
+    //    compile(name:'vlc-android-sdk-release', ext:'aar') // Used for testing local libvlc builds
+    compile 'com.android.support:support-v4:24.2.1'
+    compile 'com.android.support:leanback-v17:24.2.1'
     compile 'com.android.support:preference-leanback-v17:24.1.1'
     compile 'com.google.code.gson:gson:2.6.2'
     compile 'com.android.volley:volley:1.0.0'
@@ -42,9 +43,8 @@ dependencies {
     compile 'us.feras.mdv:markdownview:1.1.0'
     compile 'com.google.android.exoplayer:exoplayer:r1.5.9'
     compile 'de.mrmaffen:vlc-android-sdk:1.9.8'
-//    compile(name:'vlc-android-sdk-release', ext:'aar') // Used for testing local libvlc builds
 }
 
 if (project.file('google-services.json').exists()) {
-   apply plugin: 'com.google.gms.google-services'
+    apply plugin: 'com.google.gms.google-services'
 }
